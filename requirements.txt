@@ -1,0 +1,6 @@
+ultralytics
+pandas
+matplotlib
+PyYAML
+Pillow
+
