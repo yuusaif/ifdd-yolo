@@ -1,0 +1,44 @@
+# Paper-matched four-model extension. Separate from the 930-image study.
+experiment: paper_30e_m
+data: data/ifdd/data.yaml
+training_ready: false
+augmentation_strategy: paper_online
+device: 0
+models:
+  yolov8: yolov8m.pt
+  yolo11: yolo11m.pt
+  yolo12: yolo12m.pt
+  yolo26: yolo26m.pt
+train:
+  epochs: 30
+  imgsz: 640
+  batch: 8
+  seed: 42
+  deterministic: true
+  optimizer: SGD
+  lr0: 0.01
+  lrf: 0.01
+  cos_lr: true
+  momentum: 0.937
+  weight_decay: 0.0005
+  warmup_epochs: 3
+  warmup_momentum: 0.8
+  warmup_bias_lr: 0.1
+  box: 7.5
+  cls: 0.5
+  dfl: 1.5
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  fliplr: 0.5
+  translate: 0.1
+  scale: 0.5
+  mosaic: 1.0
+  close_mosaic: 10
+  degrees: 0.0
+  shear: 0.0
+  perspective: 0.0
+  mixup: 0.0
+  patience: 0
+  plots: true
+
