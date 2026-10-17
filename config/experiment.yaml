@@ -1,0 +1,53 @@
+# Primary 930-source-image study. The Roboflow v3 export contained polygon
+# rows, so data/ifdd_930_boxes is a documented axis-aligned-box derivative.
+# Batch 4 was selected by the local synthetic CUDA probe.
+experiment: ifdd_930_test_m
+data: data/ifdd_930_boxes/data.yaml
+training_ready: true
+augmentation_strategy: roboflow_3x_offline
+device: 0
+models:
+  yolov8: yolov8m.pt
+  yolo11: yolo11m.pt
+  yolo12: yolo12m.pt
+  yolo26: yolo26m.pt
+train:
+  epochs: 30
+  imgsz: 640
+  batch: 4  # shared batch; do not override per model
+  seed: 42
+  deterministic: true
+  optimizer: SGD
+  lr0: 0.01
+  lrf: 0.01
+  cos_lr: true
+  momentum: 0.937
+  weight_decay: 0.0005
+  warmup_epochs: 3
+  warmup_momentum: 0.8
+  warmup_bias_lr: 0.1
+  box: 7.5
+  cls: 0.5
+  dfl: 1.5
+  # Roboflow owns the assigned augmentation: horizontal/vertical flip,
+  # 90-degree rotation, and blur. Disable overlapping online augmentation.
+  hsv_h: 0.0
+  hsv_s: 0.0
+  hsv_v: 0.0
+  degrees: 0.0
+  translate: 0.0
+  scale: 0.0
+  shear: 0.0
+  perspective: 0.0
+  flipud: 0.0
+  fliplr: 0.0
+  mosaic: 0.0
+  close_mosaic: 0
+  mixup: 0.0
+  cutmix: 0.0
+  copy_paste: 0.0
+  erasing: 0.0
+  bgr: 0.0
+  patience: 0
+  plots: true
+
