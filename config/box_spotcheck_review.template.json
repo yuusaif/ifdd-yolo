@@ -1,0 +1,16 @@
+{
+  "dataset_sha256": "PASTE_THE_VALUE_FROM_data/ifdd_930_v4_boxes/dataset_audit.json",
+  "samples_reviewed": 30,
+  "angled_clip_samples": 5,
+  "review_method": "Visually compare each converted axis-aligned box with its source polygon annotation and image.",
+  "reviewer_summary": "Replace with observed issues and disposition.",
+  "records": [
+    {
+      "image": "REPLACE_WITH_IMAGE_FILENAME",
+      "class": "Clip",
+      "angled_clip": true,
+      "conversion_acceptable": true,
+      "note": "REPLACE_WITH_OBSERVATION"
+    }
+  ]
+}
