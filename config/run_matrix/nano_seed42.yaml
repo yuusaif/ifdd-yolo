@@ -1,0 +1,79 @@
+experiment: ifdd_930_v4_nano_seed42
+data: data/ifdd_930_v4_boxes/data.yaml
+training_ready: true
+augmentation_strategy: roboflow_3x_offline
+device: 0
+models:
+  yolov8n: yolov8n.pt
+  yolo11n: yolo11n.pt
+  yolo12n: yolo12n.pt
+  yolo26n: weights/yolo26n.pt
+train:
+  epochs: 30
+  imgsz: 640
+  batch: 4
+  seed: 42
+  deterministic: true
+  optimizer: SGD
+  lr0: 0.01
+  lrf: 0.01
+  cos_lr: true
+  momentum: 0.937
+  weight_decay: 0.0005
+  warmup_epochs: 3
+  warmup_momentum: 0.8
+  warmup_bias_lr: 0.1
+  box: 7.5
+  cls: 0.5
+  dfl: 1.5
+  hsv_h: 0.0
+  hsv_s: 0.0
+  hsv_v: 0.0
+  degrees: 0.0
+  translate: 0.0
+  scale: 0.0
+  shear: 0.0
+  perspective: 0.0
+  flipud: 0.0
+  fliplr: 0.0
+  mosaic: 0.0
+  close_mosaic: 0
+  mixup: 0.0
+  cutmix: 0.0
+  copy_paste: 0.0
+  erasing: 0.0
+  bgr: 0.0
+  patience: 0
+  plots: true
+  save_period: 0
+checkpoint_selection:
+  metric: metrics/mAP50-95(B)
+  direction: maximize
+  tie_break: earliest_epoch
+  output_checkpoint: selected_by_val_map5095.pt
+evaluation_protocol:
+  nms_iou: 0.7
+  matching_iou: 0.5
+  confidence_candidates:
+  - 0.1
+  - 0.2
+  - 0.3
+  - 0.4
+  - 0.5
+  - 0.6
+  - 0.7
+  - 0.8
+  - 0.9
+  threshold_selection: maximum_validation_recall_then_minimum_false_positives
+scale: nano
+study_protocol:
+  seed: 42
+  scale: nano
+  shared_batch: 4
+  dataset_review: data/ifdd_930_v4_boxes/dataset_review.json
+  checkpoint_selection: maximum validation mAP50-95; ties resolved by earlier epoch
+  test_policy: test only after all planned runs and validation decisions are frozen
+preflight:
+  box_conversion_spotcheck:
+    status: complete
+    record: data/ifdd_930_v4_boxes/box_spotcheck_review.json
