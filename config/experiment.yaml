@@ -1,8 +1,5 @@
-# Primary 930-source-image study. The Roboflow v3 export contained polygon
-# rows, so data/ifdd_930_boxes is a documented axis-aligned-box derivative.
-# Batch 4 was selected by the local synthetic CUDA probe.
-experiment: ifdd_930_test_m
-data: data/ifdd_930_boxes/data.yaml
+experiment: ifdd_930_v4_test_m
+data: data/ifdd_930_v4_boxes/data.yaml
 training_ready: true
 augmentation_strategy: roboflow_3x_offline
 device: 0
@@ -14,7 +11,7 @@ models:
 train:
   epochs: 30
   imgsz: 640
-  batch: 4  # shared batch; do not override per model
+  batch: 4
   seed: 42
   deterministic: true
   optimizer: SGD
@@ -29,8 +26,6 @@ train:
   box: 7.5
   cls: 0.5
   dfl: 1.5
-  # Roboflow owns the assigned augmentation: horizontal/vertical flip,
-  # 90-degree rotation, and blur. Disable overlapping online augmentation.
   hsv_h: 0.0
   hsv_s: 0.0
   hsv_v: 0.0
@@ -50,4 +45,27 @@ train:
   bgr: 0.0
   patience: 0
   plots: true
-
+  save_period: 0
+checkpoint_selection:
+  metric: metrics/mAP50-95(B)
+  direction: maximize
+  tie_break: earliest_epoch
+  output_checkpoint: selected_by_val_map5095.pt
+evaluation_protocol:
+  nms_iou: 0.7
+  matching_iou: 0.5
+  confidence_candidates:
+  - 0.1
+  - 0.2
+  - 0.3
+  - 0.4
+  - 0.5
+  - 0.6
+  - 0.7
+  - 0.8
+  - 0.9
+  threshold_selection: maximum_validation_recall_then_minimum_false_positives
+preflight:
+  box_conversion_spotcheck:
+    status: complete
+    record: data/ifdd_930_v4_boxes/box_spotcheck_review.json
