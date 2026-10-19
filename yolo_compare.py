@@ -6,8 +6,10 @@ Training never starts during import. Pass --skip-train to analyze existing runs.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import platform
+import shutil
 import sys
 from pathlib import Path
 
@@ -48,42 +50,131 @@ def load_config(path: Path, data_override: str | None, device_override: str | No
     return config
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def train_all(config: dict, run_dir: Path) -> None:
     if config.get("training_ready") is not True:
         raise RuntimeError("Training is locked: set training_ready: true only after dataset and settings are frozen")
     if config.get("augmentation_strategy") in (None, "undecided"):
         raise ValueError("Choose and record an augmentation_strategy before training")
+    spotcheck = config.get("preflight", {}).get("box_conversion_spotcheck", {})
+    record_path = ROOT / spotcheck.get("record", "data/ifdd_930_v4_boxes/box_spotcheck_review.json")
+    if spotcheck.get("status") != "complete" or not record_path.is_file():
+        raise RuntimeError(
+            "Training is locked until the 30-image polygon-to-box spot-check is recorded "
+            f"in {record_path}; review angled clips and mark preflight complete in each matrix config."
+        )
+    review_record = json.loads(record_path.read_text())
+    if (int(review_record.get("samples_reviewed", 0)) < 30
+            or len(review_record.get("records", [])) < 30
+            or int(review_record.get("angled_clip_samples", 0)) < 1
+            or review_record.get("dataset_sha256") != json.loads(
+                (ROOT / "data" / "ifdd_930_v4_boxes" / "dataset_audit.json").read_text()
+            ).get("dataset_sha256")):
+        raise RuntimeError(
+            "Box-conversion review record must cover at least 30 samples including an angled clip "
+            "and match the current dataset fingerprint."
+        )
     batch = config["train"].get("batch")
     if not isinstance(batch, int) or isinstance(batch, bool) or batch < 1:
         raise ValueError("Choose a fixed positive integer train.batch before training")
+    # Resolve and hash all checkpoints before starting any model. YOLO accepts
+    # model names and may download missing weights implicitly; this workflow
+    # requires all weights to be present locally and recorded in advance.
+    checkpoint_paths = {}
+    for label, weights in config["models"].items():
+        weight_path = Path(weights)
+        if not weight_path.is_absolute():
+            weight_path = ROOT / weight_path
+        weight_path = weight_path.resolve()
+        if not weight_path.is_file():
+            raise FileNotFoundError(
+                f"Checkpoint for {label} is missing: {weight_path}. "
+                "Place the authorized checkpoint locally before training; no download was attempted."
+            )
+        digest = sha256_file(weight_path)
+        checkpoint_paths[label] = {"path": str(weight_path), "sha256": digest}
+
     from ultralytics import YOLO, __version__ as ultralytics_version
     import torch
 
     report = audit_dataset(Path(config["data"]))
     if report["issues"]:
         raise RuntimeError("Dataset audit failed:\n" + "\n".join(report["issues"][:20]))
-    for label in config["models"]:
-        if (run_dir / label).exists():
-            raise FileExistsError(f"Existing run directory: {run_dir / label}. Choose a new experiment name.")
+    if report["dataset_sha256"] != review_record["dataset_sha256"]:
+        raise RuntimeError("Dataset changed after the box spot-check; re-audit and repeat the review before training")
+    if run_dir.exists():
+        raise FileExistsError(f"Existing experiment directory: {run_dir}. Choose a new experiment name.")
     run_dir.mkdir(parents=True, exist_ok=True)
+    environment = {
+        "python": platform.python_version(),
+        "pytorch": torch.__version__,
+        "ultralytics": ultralytics_version,
+        "cuda": torch.version.cuda,
+        "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+    }
+    (run_dir / "dataset_audit.json").write_text(json.dumps(report, indent=2))
+    (run_dir / "environment.json").write_text(json.dumps(environment, indent=2))
+    (run_dir / "study_manifest.json").write_text(json.dumps({
+        "experiment": config["experiment"],
+        "configuration": config,
+        "dataset_sha256": report["dataset_sha256"],
+        "checkpoint_files": checkpoint_paths,
+        "environment": environment,
+    }, indent=2))
     for label, weights in config["models"].items():
-        print(f"\n===== Training {label} ({weights}) =====", flush=True)
-        model = YOLO(weights)
+        print(f"\n===== Training {label} ({checkpoint_paths[label]['path']}) =====", flush=True)
+        model = YOLO(checkpoint_paths[label]["path"])
         args = dict(config["train"])
         args.update(data=config["data"], device=config["device"], project=str(run_dir), name=label, exist_ok=False)
+
+        selection = {"metric": "metrics/mAP50-95(B)", "value": None, "epoch": None}
+
+        def save_best_map5095(trainer) -> None:
+            metric_value = trainer.metrics.get("metrics/mAP50-95(B)")
+            if metric_value is None:
+                return
+            metric_value = float(metric_value)
+            if selection["value"] is None or metric_value > selection["value"]:
+                source = Path(trainer.last)
+                destination = Path(trainer.wdir) / "selected_by_val_map5095.pt"
+                shutil.copy2(source, destination)
+                selection.update(value=metric_value, epoch=int(trainer.epoch) + 1)
+                record = {
+                    "selection_metric": "metrics/mAP50-95(B)",
+                    "direction": "maximize",
+                    "tie_break": "earliest epoch",
+                    "epoch_csv_value_one_based": selection["epoch"],
+                    "metric_value": selection["value"],
+                    "selected_checkpoint": destination.name,
+                    "source_checkpoint": "last.pt at the selected epoch",
+                }
+                (destination.parent.parent / "checkpoint_selection.json").write_text(
+                    json.dumps(record, indent=2)
+                )
+
+        model.add_callback("on_model_save", save_best_map5095)
         model.train(**args)
+        if selection["value"] is None:
+            raise RuntimeError(f"No validation-selected checkpoint was saved for {label}")
+        selected_path = run_dir / label / "weights" / "selected_by_val_map5095.pt"
         manifest = {
             "model": label,
-            "weights": weights,
+            "weights": checkpoint_paths[label],
             "dataset_sha256": report["dataset_sha256"],
             "dataset_audit": report,
             "configuration": config,
-            "environment": {
-                "python": platform.python_version(),
-                "pytorch": torch.__version__,
-                "ultralytics": ultralytics_version,
-                "cuda": torch.version.cuda,
-                "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+            "environment": environment,
+            "checkpoint_selection": selection,
+            "selected_checkpoint": {
+                "path": str(selected_path),
+                "sha256": sha256_file(selected_path),
             },
         }
         (run_dir / label / "run_manifest.json").write_text(json.dumps(manifest, indent=2))
@@ -237,7 +328,7 @@ def main() -> int:
         if not opts.skip_train:
             train_all(config, run_dir)
         compare(config, run_dir, opts.allow_partial, output_dir)
-    except (FileNotFoundError, ValueError, RuntimeError, ImportError, yaml.YAMLError) as exc:
+    except (FileNotFoundError, FileExistsError, ValueError, RuntimeError, ImportError, yaml.YAMLError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     return 0
