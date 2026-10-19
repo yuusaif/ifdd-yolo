@@ -67,19 +67,21 @@ python scripts/validation_handoff.py --output-dir runs_compare/validation_handof
 
 The validation handoff stores per-class precision/recall/AP tables and Ultralytics validation plots, including both confusion matrices and `BoxF1_curve.png`, for each run.
 
-Calibrate one shared confidence and NMS threshold using validation predictions from all 24 runs. Matching IoU is fixed at 0.5. The script chooses maximum pooled validation recall, then minimum false positives, then higher confidence and NMS IoU. Use a new output name if a previous attempt created partial files:
+Calibrate one shared confidence and NMS threshold using validation predictions from all 24 runs. Matching IoU is fixed at 0.5. Post-training inference uses batch 1 and 640 px; calibration streams predictions to limit retained result memory. By default it uses the matrix device and FP16. If CUDA runs out of memory, pass `--device cpu`; CPU inference uses FP32, preserves image size, and can take substantially longer. Use the same device for calibration and test, and keep the training batch unchanged at 4. The prediction confidence floor defaults to 0.099, just below the sweep's lowest threshold of 0.1, to avoid NMS work on irrelevant very-low-confidence candidates. Calibration records device, precision, and other inference settings with the selected thresholds. The script chooses maximum pooled validation recall, then minimum false positives, then higher confidence and NMS IoU. Use a new output name if a previous attempt created partial files:
 
 ```bash
 python scripts/evaluate_locked_test.py calibrate \
-  --output-dir runs_compare/validation_calibration/ifdd_v4_three_seed
+  --output-dir runs_compare/validation_calibration/ifdd_v4_three_seed_cpu \
+  --device cpu
 ```
 
 Review `locked_thresholds.json`, confirm the selected shared thresholds, and do not tune them on test results. Only after every training run and validation decision is frozen, run the final test handoff once:
 
 ```bash
 python scripts/evaluate_locked_test.py test \
-  --thresholds runs_compare/validation_calibration/ifdd_v4_three_seed/locked_thresholds.json \
-  --output-dir runs_compare/test_evaluation/ifdd_v4_three_seed
+  --thresholds runs_compare/validation_calibration/ifdd_v4_three_seed_cpu/locked_thresholds.json \
+  --output-dir runs_compare/test_evaluation/ifdd_v4_three_seed_cpu \
+  --device cpu
 ```
 
 This runs `model.val(split="test", save_json=True)` and saves per-image predictions plus fixed-threshold one-to-one TP/FP/FN summaries. The JSON prediction files are the handoff for class confusions, McNemar, kappa, and image-level bootstrap analyses. Validation curves and test metrics must be reported separately. The confidence sweep on validation is saved during calibration; any test threshold sweep is descriptive only and cannot be used to select an operating point.
@@ -93,7 +95,7 @@ python scripts/benchmark_matrix.py --output-dir runs_compare/benchmarks/ifdd_v4_
 python scripts/create_corruption_copies.py --output-dir data/ifdd_930_v4_corruptions
 python scripts/evaluate_corruptions.py \
   --corruption-dir data/ifdd_930_v4_corruptions \
-  --thresholds runs_compare/validation_calibration/ifdd_v4_three_seed/locked_thresholds.json \
+  --thresholds runs_compare/validation_calibration/ifdd_v4_three_seed_conf099/locked_thresholds.json \
   --output-dir runs_compare/corruption_eval/ifdd_v4_three_seed
 ```
 
